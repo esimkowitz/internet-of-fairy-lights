@@ -46,7 +46,7 @@ void alternate_blink_handler()
 
 Timer alternate_blink_timer(alternate_blink_delta_time, alternate_blink_handler);
 
-unsigned long steady_delta_time = 2;
+unsigned long steady_delta_time = 10;
 bool steady_state = false;
 
 void steady_handler()
@@ -74,6 +74,9 @@ void change_mode_subscribe_handler(const char *event, const char *data)
 void setup() {
   pinMode(fairy_light_pin_1, OUTPUT);
   pinMode(fairy_light_pin_2, OUTPUT);
+
+  analogWrite(fairy_light_pin_1, 0);
+  analogWrite(fairy_light_pin_2, 0);
 
   #if (PLATFORM_ID == PLATFORM_ARGON)
   Particle.function("change_mode", change_mode_function_handler);

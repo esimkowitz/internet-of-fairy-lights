@@ -8,7 +8,7 @@
 #define fairy_light_pin_1 A0
 #define fairy_light_pin_2 A2
 
-#define fairy_light_high 230
+#define fairy_light_high 4095
 
 float brightness;
 
@@ -16,7 +16,8 @@ enum Mode
 {
   off,
   alternate_blink,
-  steady
+  steady,
+  test
 } blink_mode;
 
 // Define the functions to handle the change_mode functionality
@@ -42,6 +43,38 @@ void new_brightness_subscribe_handler(const char *event, const char *data)
 {
   String new_brightness = String(data);
   change_brightness(new_brightness);
+}
+#endif
+
+#if (PLATFORM_ID == PLATFORM_ARGON)
+void request_mode_subscribe_handler(const char *event, const char *data) {
+  Particle.publish("request_mode");
+  String mode_str;
+  switch (blink_mode)
+  {
+  case off:
+    mode_str = "off";
+    break;
+  case steady:
+    mode_str = "steady";
+    break;
+  case alternate_blink:
+    mode_str = "alternate_blink";
+    break;
+  case test:
+    mode_str = "test";
+    break;
+  default:
+    break;
+  }
+  if (mode_str.length() > 0) {
+    Particle.publish("new_mode", mode_str);
+    Mesh.publish("new_mode", mode_str);
+  }
+}
+
+void request_brightness_subscribe_handler(const char *event, const char *data) {
+  Mesh.publish("new_brightness", String(brightness));
 }
 #endif
 
@@ -95,21 +128,42 @@ void steady_handler()
 
 Timer steady_timer(steady_delta_time, steady_handler);
 
+// Set up the timers for the test mode, which is used to test the voltage and power to the lights
+void test_handler()
+{
+  analogWrite(fairy_light_pin_2, 0);
+  analogWrite(fairy_light_pin_1, fairy_light_high * brightness, 1000);
+}
+
+Timer test_timer(1, test_handler, true);
+
 // setup() runs once, when the device is first turned on.
 void setup()
 {
   pinMode(fairy_light_pin_1, OUTPUT);
   pinMode(fairy_light_pin_2, OUTPUT);
+  
+  analogWriteResolution(fairy_light_pin_1, 12);
+  analogWriteResolution(fairy_light_pin_2, 12);
 
   analogWrite(fairy_light_pin_1, 0);
   analogWrite(fairy_light_pin_2, 0);
-
+  while (!Mesh.ready()) {
+    // do nothing
+    delay(10);
+  }
 #if (PLATFORM_ID == PLATFORM_ARGON)
   Particle.function("mode", change_mode);
   Particle.function("brightness", change_brightness);
+  Mesh.subscribe("request_mode", request_mode_subscribe_handler);
+  Mesh.subscribe("request_brightness", request_brightness_subscribe_handler);
 #elif (PLATFORM_ID == PLATFORM_XENON)
   Mesh.subscribe("new_mode", new_mode_subscribe_handler);
   Mesh.subscribe("new_brightness", new_brightness_subscribe_handler);
+  delay(1000);
+  Mesh.publish("request_mode");
+  delay(1000);
+  Mesh.publish("request_brightness");
 #endif
 
   blink_mode = off;
@@ -134,6 +188,10 @@ void change_timer(Mode old_mode, Mode new_mode)
     break;
   case alternate_blink:
     alternate_blink_timer.stop();
+    break;
+  case test:
+    // no need to stop test_timer, it stops automatically
+    break;
   default:
     break;
   }
@@ -147,6 +205,10 @@ void change_timer(Mode old_mode, Mode new_mode)
     break;
   case alternate_blink:
     alternate_blink_timer.start();
+    break;
+  case test:
+    test_timer.start();
+    break;
   default:
     break;
   }
@@ -168,6 +230,10 @@ int change_mode(String new_mode)
   else if (new_mode == "steady")
   {
     blink_mode = steady;
+  }
+  else if (new_mode == "test")
+  {
+    blink_mode = test;
   }
   else
     return -1;

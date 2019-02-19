@@ -1,1 +1,3 @@
 .vscode/
+target/
+src/internet-of-fairy-lights-firmware.cpp

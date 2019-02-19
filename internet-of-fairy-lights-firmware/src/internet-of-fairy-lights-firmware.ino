@@ -10,6 +10,8 @@
 
 #define fairy_light_high 4095
 
+SYSTEM_MODE(MANUAL);
+
 float brightness;
 
 enum Mode
@@ -47,7 +49,8 @@ void new_brightness_subscribe_handler(const char *event, const char *data)
 #endif
 
 #if (PLATFORM_ID == PLATFORM_ARGON)
-void request_mode_subscribe_handler(const char *event, const char *data) {
+void request_mode_subscribe_handler(const char *event, const char *data)
+{
   Particle.publish("request_mode");
   String mode_str;
   switch (blink_mode)
@@ -67,17 +70,18 @@ void request_mode_subscribe_handler(const char *event, const char *data) {
   default:
     break;
   }
-  if (mode_str.length() > 0) {
+  if (mode_str.length() > 0)
+  {
     Particle.publish("new_mode", mode_str);
     Mesh.publish("new_mode", mode_str);
   }
 }
 
-void request_brightness_subscribe_handler(const char *event, const char *data) {
+void request_brightness_subscribe_handler(const char *event, const char *data)
+{
   Mesh.publish("new_brightness", String(brightness));
 }
 #endif
-
 
 // Set up the timers for the various blink modes
 void off_handler()
@@ -137,22 +141,71 @@ void test_handler()
 
 Timer test_timer(1, test_handler, true);
 
+void cloud_process_handler()
+{
+  if (Particle.connected() == true)
+  {
+    Particle.process();
+  }
+  else
+  {
+    Particle.connect();
+    Timer try_again_timer(1000, cloud_process_handler, true);
+  }
+}
+
+void cloud_connect_handler()
+{
+  if (Particle.connected() == false)
+  {
+    if (!Mesh.ready())
+    {
+      Mesh.on();
+      delay(1000);
+#if (PLATFORM_ID == PLATFORM_XENON)
+      Mesh.connect();
+#endif
+    }
+    Particle.connect();
+    Timer try_again_timer(1000, cloud_process_handler, true);
+  }
+  else
+  {
+    Particle.process();
+  }
+}
+
+Timer cloud_connect_timer(19000, cloud_connect_handler);
+
 // setup() runs once, when the device is first turned on.
 void setup()
 {
   pinMode(fairy_light_pin_1, OUTPUT);
   pinMode(fairy_light_pin_2, OUTPUT);
-  
+
   analogWriteResolution(fairy_light_pin_1, 12);
   analogWriteResolution(fairy_light_pin_2, 12);
 
   analogWrite(fairy_light_pin_1, 0);
   analogWrite(fairy_light_pin_2, 0);
-  while (!Mesh.ready()) {
+
+  Mesh.on();
+#if (PLATFORM_ID == PLATFORM_XENON)
+  Mesh.connect();
+  while (!Mesh.ready())
+  {
     // do nothing
     delay(10);
   }
+#endif
+
+  Particle.connect();
+
 #if (PLATFORM_ID == PLATFORM_ARGON)
+  while (!Particle.connected())
+  {
+    delay(1000);
+  }
   Particle.function("mode", change_mode);
   Particle.function("brightness", change_brightness);
   Mesh.subscribe("request_mode", request_mode_subscribe_handler);
@@ -250,12 +303,14 @@ int change_mode(String new_mode)
   return 1;
 }
 
-int change_brightness(String new_brightness) {
+int change_brightness(String new_brightness)
+{
   int new_brightness_int = new_brightness.toInt();
-  if (new_brightness_int < 0 || new_brightness_int > 10) {
+  if (new_brightness_int < 0 || new_brightness_int > 10)
+  {
     return -1;
   }
-  
+
   brightness = new_brightness_int / 10.0;
 
   // The gateway (the Argon device) publishes a Mesh event that the other devices listen to.

@@ -141,19 +141,6 @@ void test_handler()
 
 Timer test_timer(1, test_handler, true);
 
-void cloud_process_handler()
-{
-  if (Particle.connected() == true)
-  {
-    Particle.process();
-  }
-  else
-  {
-    Particle.connect();
-    Timer try_again_timer(1000, cloud_process_handler, true);
-  }
-}
-
 void cloud_connect_handler()
 {
   if (Particle.connected() == false)
@@ -167,7 +154,7 @@ void cloud_connect_handler()
 #endif
     }
     Particle.connect();
-    Timer try_again_timer(1000, cloud_process_handler, true);
+    Timer try_again_timer(1000, cloud_connect_handler, true);
   }
   else
   {

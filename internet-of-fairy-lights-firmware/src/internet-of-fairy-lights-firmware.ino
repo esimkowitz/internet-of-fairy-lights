@@ -10,7 +10,9 @@
 
 #define fairy_light_high 4095
 
+#if (PLATFORM_ID == PLATFORM_XENON)
 SYSTEM_MODE(MANUAL);
+#endif
 
 float brightness;
 
@@ -22,7 +24,6 @@ enum Mode
   test
 } blink_mode;
 
-void cloud_connect_handler();
 
 // Define the functions to handle the change_mode functionality
 int change_mode(String new_mode);
@@ -143,39 +144,11 @@ void test_handler()
 
 Timer test_timer(1, test_handler, true);
 
-Timer try_again_timer(1000, cloud_connect_handler, true);
-Timer cloud_connect_timer(19000, cloud_connect_handler);
-
-void cloud_connect_handler()
-{
-  Serial.println("entered cloud connect handler");
-  if (Particle.connected() == false)
-  {
-    Serial.println("no particle connection");
-    if (!Mesh.ready())
-    {
-      // Mesh.on();
-      // delay(1000);
-#if (PLATFORM_ID == PLATFORM_XENON)
-      Serial.println("sending Mesh.connect()");
-      Mesh.connect();
-#endif
-    }
-    Serial.println("sending Particle.connect");
-    Particle.connect();
-    Serial.println("Starting try_again_timer");
-    try_again_timer.start();
-    Serial.println("started try_again_timer");
-  }
-  else
-  {
-    Serial.println("Particle connected");
-    Particle.process();
-    Serial.println("ran Particle.process");
-    Particle.publish("xenon connected");
-  }
-}
-
+unsigned long cloud_connect_last_time = 0;
+unsigned long cloud_connect_delta_time = 19000;
+unsigned long cloud_process_last_time = 0;
+unsigned long cloud_process_delta_time = 2000;
+bool run_cloud_process = true;
 
 // setup() runs once, when the device is first turned on.
 void setup()
@@ -190,8 +163,8 @@ void setup()
   analogWrite(fairy_light_pin_1, 0);
   analogWrite(fairy_light_pin_2, 0);
 
-  Mesh.on();
 #if (PLATFORM_ID == PLATFORM_XENON)
+  Mesh.on();
   delay(1000);
   Mesh.connect();
   while (!Mesh.ready())
@@ -199,15 +172,16 @@ void setup()
     // do nothing
     delay(10);
   }
-#endif
 
   Particle.connect();
+  
+#endif
 
 #if (PLATFORM_ID == PLATFORM_ARGON)
-  while (!Particle.connected())
-  {
-    delay(1000);
-  }
+  // while (!Particle.connected())
+  // {
+  //   delay(1000);
+  // }
   Particle.function("mode", change_mode);
   Particle.function("brightness", change_brightness);
   Mesh.subscribe("request_mode", request_mode_subscribe_handler);
@@ -224,14 +198,48 @@ void setup()
   blink_mode = off;
   brightness = 1.0;
 
-  cloud_connect_timer.start();
-  Serial.println("finished setup");ar
+  // cloud_connect_timer.start();
+  Serial.println("finished setup");
 }
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop()
 {
+  
+#if (PLATFORM_ID == PLATFORM_XENON)
   // do nothing, everything is handled by timers
+  if (((millis() - cloud_connect_last_time) > cloud_connect_delta_time) || (((millis() - cloud_connect_last_time) > cloud_process_delta_time) && run_cloud_process))
+  {
+    Serial.println("entered cloud connect handler");
+    cloud_connect_last_time = millis();
+    if (Particle.connected() == false)
+    {
+      Serial.println("no particle connection");
+      if (!Mesh.ready())
+      {
+        // Mesh.on();
+        // delay(1000);
+        Serial.println("sending Mesh.connect()");
+        Mesh.connect();
+#endif
+      }
+      Serial.println("sending Particle.connect");
+      Particle.connect();
+      Serial.println("Starting try_again_timer");
+      // cloud_process_last_time = millis();
+      run_cloud_process = true;
+      Serial.println("started try_again_timer");
+    }
+    else
+    {
+      run_cloud_process = false;
+      Serial.println("Particle connected");
+      Particle.process();
+      Serial.println("ran Particle.process");
+      Particle.publish("xenon connected");
+      Particle.disconnect();
+    }
+  }
 }
 
 void change_timer(Mode old_mode, Mode new_mode)

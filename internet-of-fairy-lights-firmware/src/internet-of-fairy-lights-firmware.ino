@@ -16,14 +16,13 @@ SYSTEM_MODE(MANUAL);
 
 float brightness;
 
-enum Mode
+enum LightMode
 {
   off,
   alternate_blink,
   steady,
   test
 } blink_mode;
-
 
 // Define the functions to handle the change_mode functionality
 int change_mode(String new_mode);
@@ -144,11 +143,27 @@ void test_handler()
 
 Timer test_timer(1, test_handler, true);
 
-unsigned long cloud_connect_last_time = 0;
-unsigned long cloud_connect_delta_time = 19000;
-unsigned long cloud_process_last_time = 0;
-unsigned long cloud_process_delta_time = 2000;
-bool run_cloud_process = true;
+#if (PLATFORM_ID == PLATFORM_XENON)
+enum MeshMode
+{
+  mesh_idle,
+  mesh_connect,
+  mesh_wait_to_subscribe,
+  mesh_subscribe,
+  mesh_wait_to_publish,
+  mesh_publish,
+  mesh_wait_to_off,
+  mesh_off
+} mesh_mode;
+
+unsigned long mesh_connect_last_time = 0;
+unsigned long mesh_connect_delta_time = 19000;
+unsigned long mesh_subscribe_last_time = 0;
+unsigned long mesh_subscribe_offset = 1000;
+unsigned long mesh_publish_last_time = 0;
+unsigned long mesh_publish_offset = 200;
+unsigned long mesh_off_offset = 500;
+#endif
 
 // setup() runs once, when the device is first turned on.
 void setup()
@@ -163,20 +178,6 @@ void setup()
   analogWrite(fairy_light_pin_1, 0);
   analogWrite(fairy_light_pin_2, 0);
 
-#if (PLATFORM_ID == PLATFORM_XENON)
-  Mesh.on();
-  delay(1000);
-  Mesh.connect();
-  while (!Mesh.ready())
-  {
-    // do nothing
-    delay(10);
-  }
-
-  Particle.connect();
-  
-#endif
-
 #if (PLATFORM_ID == PLATFORM_ARGON)
   // while (!Particle.connected())
   // {
@@ -187,62 +188,77 @@ void setup()
   Mesh.subscribe("request_mode", request_mode_subscribe_handler);
   Mesh.subscribe("request_brightness", request_brightness_subscribe_handler);
 #elif (PLATFORM_ID == PLATFORM_XENON)
-  Mesh.subscribe("new_mode", new_mode_subscribe_handler);
-  Mesh.subscribe("new_brightness", new_brightness_subscribe_handler);
-  delay(1000);
-  Mesh.publish("request_mode");
-  delay(1000);
-  Mesh.publish("request_brightness");
+  mesh_mode = mesh_idle;
 #endif
 
   blink_mode = off;
   brightness = 1.0;
 
-  // cloud_connect_timer.start();
+  // mesh_connect_timer.start();
   Serial.println("finished setup");
 }
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop()
 {
-  
 #if (PLATFORM_ID == PLATFORM_XENON)
   // do nothing, everything is handled by timers
-  if (((millis() - cloud_connect_last_time) > cloud_connect_delta_time) || (((millis() - cloud_connect_last_time) > cloud_process_delta_time) && run_cloud_process))
+  switch (mesh_mode)
   {
-    Serial.println("entered cloud connect handler");
-    cloud_connect_last_time = millis();
-    if (Particle.connected() == false)
+  case mesh_idle:
+    if ((millis() - mesh_connect_last_time) > mesh_connect_delta_time)
     {
-      Serial.println("no particle connection");
-      if (!Mesh.ready())
-      {
-        // Mesh.on();
-        // delay(1000);
-        Serial.println("sending Mesh.connect()");
-        Mesh.connect();
-#endif
-      }
-      Serial.println("sending Particle.connect");
-      Particle.connect();
-      Serial.println("Starting try_again_timer");
-      // cloud_process_last_time = millis();
-      run_cloud_process = true;
-      Serial.println("started try_again_timer");
+      mesh_mode = mesh_connect;
     }
-    else
+    break;
+  case mesh_connect:
+    mesh_connect_last_time = millis();
+    Mesh.on();
+    Mesh.connect();
+    mesh_mode = mesh_wait_to_subscribe;
+    break;
+  case mesh_wait_to_subscribe:
+    if ((millis() - mesh_connect_last_time) > mesh_subscribe_offset)
     {
-      run_cloud_process = false;
-      Serial.println("Particle connected");
-      Particle.process();
-      Serial.println("ran Particle.process");
-      Particle.publish("xenon connected");
-      Particle.disconnect();
+      mesh_mode = mesh_subscribe;
     }
+    break;
+  case mesh_subscribe:
+    mesh_subscribe_last_time = millis();
+    Mesh.subscribe("new_mode", new_mode_subscribe_handler);
+    Mesh.subscribe("new_brightness", new_brightness_subscribe_handler);
+    mesh_mode = mesh_wait_to_publish;
+    break;
+  case mesh_wait_to_publish:
+    if ((millis() - mesh_subscribe_last_time) > mesh_subscribe_offset)
+    {
+      mesh_mode = mesh_publish;
+    }
+    break;
+  case mesh_publish:
+    mesh_publish_last_time = millis();
+    Mesh.publish("request_mode");
+    Mesh.publish("request_brightness");
+    mesh_mode = mesh_wait_to_off;
+    break;
+  case mesh_wait_to_off:
+    if ((millis() - mesh_publish_last_time) > mesh_off_offset)
+    {
+      mesh_mode = mesh_off;
+    }
+    break;
+  case mesh_off:
+    Mesh.off();
+    mesh_mode = mesh_idle;
+    break;
+  default:
+    mesh_mode = mesh_idle;
+    break;
   }
+#endif
 }
 
-void change_timer(Mode old_mode, Mode new_mode)
+void change_timer(LightMode old_mode, LightMode new_mode)
 {
   switch (old_mode)
   {
@@ -284,7 +300,7 @@ void change_timer(Mode old_mode, Mode new_mode)
 int change_mode(String new_mode)
 {
   new_mode = new_mode.toLowerCase();
-  Mode old_mode = blink_mode;
+  LightMode old_mode = blink_mode;
   if (new_mode == "off")
   {
     blink_mode = off;

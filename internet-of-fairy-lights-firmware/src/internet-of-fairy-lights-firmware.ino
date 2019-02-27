@@ -10,6 +10,8 @@
 
 #define fairy_light_high 4095
 
+#define MESH_ALWAYS_ON true
+
 #if (PLATFORM_ID == PLATFORM_XENON)
 SYSTEM_MODE(MANUAL);
 #endif
@@ -81,7 +83,7 @@ void request_mode_subscribe_handler(const char *event, const char *data)
 
 void request_brightness_subscribe_handler(const char *event, const char *data)
 {
-  Mesh.publish("new_brightness", String(brightness));
+  Mesh.publish("new_brightness", String(int(brightness * 10.0)));
 }
 #endif
 
@@ -144,6 +146,7 @@ void test_handler()
 Timer test_timer(1, test_handler, true);
 
 #if (PLATFORM_ID == PLATFORM_XENON)
+#if (MESH_ALWAYS_ON == false)
 enum MeshMode
 {
   mesh_idle,
@@ -163,6 +166,10 @@ unsigned long mesh_subscribe_offset = 1000;
 unsigned long mesh_publish_last_time = 0;
 unsigned long mesh_publish_offset = 200;
 unsigned long mesh_off_offset = 500;
+#endif
+void _mesh_connect();
+void _mesh_subscribe();
+void _mesh_publish();
 #endif
 
 // setup() runs once, when the device is first turned on.
@@ -187,8 +194,14 @@ void setup()
   Particle.function("brightness", change_brightness);
   Mesh.subscribe("request_mode", request_mode_subscribe_handler);
   Mesh.subscribe("request_brightness", request_brightness_subscribe_handler);
-#elif (PLATFORM_ID == PLATFORM_XENON)
+#elif ((PLATFORM_ID == PLATFORM_XENON) && (MESH_ALWAYS_ON == false))
   mesh_mode = mesh_idle;
+#elif (PLATFORM_ID == PLATFORM_XENON)
+  _mesh_connect();
+  delay(1000);
+  _mesh_subscribe();
+  delay(100);
+  _mesh_publish();
 #endif
 
   blink_mode = off;
@@ -201,7 +214,7 @@ void setup()
 // loop() runs over and over again, as quickly as it can execute.
 void loop()
 {
-#if (PLATFORM_ID == PLATFORM_XENON)
+#if ((PLATFORM_ID == PLATFORM_XENON) && (MESH_ALWAYS_ON == false))
   // do nothing, everything is handled by timers
   switch (mesh_mode)
   {
@@ -213,20 +226,20 @@ void loop()
     break;
   case mesh_connect:
     mesh_connect_last_time = millis();
-    Mesh.on();
-    Mesh.connect();
+    _mesh_connect();
     mesh_mode = mesh_wait_to_subscribe;
     break;
   case mesh_wait_to_subscribe:
     if ((millis() - mesh_connect_last_time) > mesh_subscribe_offset)
     {
-      mesh_mode = mesh_subscribe;
+      if (Mesh.ready()) {
+        mesh_mode = mesh_subscribe;
+      }
     }
     break;
   case mesh_subscribe:
     mesh_subscribe_last_time = millis();
-    Mesh.subscribe("new_mode", new_mode_subscribe_handler);
-    Mesh.subscribe("new_brightness", new_brightness_subscribe_handler);
+    _mesh_subscribe();
     mesh_mode = mesh_wait_to_publish;
     break;
   case mesh_wait_to_publish:
@@ -237,8 +250,7 @@ void loop()
     break;
   case mesh_publish:
     mesh_publish_last_time = millis();
-    Mesh.publish("request_mode");
-    Mesh.publish("request_brightness");
+    _mesh_publish();
     mesh_mode = mesh_wait_to_off;
     break;
   case mesh_wait_to_off:
@@ -257,6 +269,24 @@ void loop()
   }
 #endif
 }
+
+#if (PLATFORM_ID == PLATFORM_XENON)
+void _mesh_connect() {
+  Mesh.on();
+  Mesh.connect();
+}
+
+void _mesh_subscribe() {
+  Mesh.subscribe("new_mode", new_mode_subscribe_handler);
+  Mesh.subscribe("new_brightness", new_brightness_subscribe_handler);
+}
+
+void _mesh_publish() {
+  Mesh.publish("request_mode");
+  Mesh.publish("request_brightness");
+}
+
+#endif
 
 void change_timer(LightMode old_mode, LightMode new_mode)
 {
@@ -324,6 +354,8 @@ int change_mode(String new_mode)
 #if (PLATFORM_ID == PLATFORM_ARGON)
   Mesh.publish("new_mode", new_mode);
 #endif
+  Serial.print("change_mode: ");
+  Serial.println(new_mode);
 
   if (old_mode != blink_mode)
   {
@@ -346,6 +378,10 @@ int change_brightness(String new_brightness)
 #if (PLATFORM_ID == PLATFORM_ARGON)
   Mesh.publish("new_brightness", new_brightness);
 #endif
+  Serial.print("change_brightness; int: ");
+  Serial.print(new_brightness_int);
+  Serial.print("; string: ");
+  Serial.println(new_brightness);
 
   return 1;
 }
